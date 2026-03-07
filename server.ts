@@ -91,7 +91,7 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  app.listen(Number(PORT), '0.0.0.0', () => {
   console.log(`Servidor corriendo en el puerto ${PORT}`);
 });
 }
