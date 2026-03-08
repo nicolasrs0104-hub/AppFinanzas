@@ -1,49 +1,19 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
-import Database from "better-sqlite3";
+import pg from "pg";
 import path from "path";
 import { fileURLToPath } from 'url';
+import 'dotenv/config';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const db = new Database("finance.db");
 
-// Initialize DB
-db.exec(`
-  DROP TABLE IF EXISTS transactions;
-  DROP TABLE IF EXISTS settings;
-
-  CREATE TABLE transactions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT NOT NULL,
-    amount REAL NOT NULL,
-    description TEXT NOT NULL,
-    account TEXT NOT NULL,
-    to_account TEXT, -- For transfers
-    category TEXT,
-    type TEXT NOT NULL -- 'expense', 'income', 'payroll', 'transfer'
-  );
-
-  CREATE TABLE settings (
-    key TEXT PRIMARY KEY,
-    value TEXT
-  );
-`);
-
-// Initial settings
-const insertSetting = db.prepare("INSERT INTO settings (key, value) VALUES (?, ?)");
-insertSetting.run("salary", "1500");
-insertSetting.run("debt", "298.56");
-insertSetting.run("initial_yape", "25.61");
-insertSetting.run("initial_plin", "137.56");
-insertSetting.run("initial_casa", "0.0");
-insertSetting.run("initial_mio", "0.0");
-insertSetting.run("contract_extended", "false");
-
-// Initial real transaction
-db.prepare(
-  "INSERT INTO transactions (date, amount, description, account, category, type) VALUES (?, ?, ?, ?, ?, ?)"
-).run("2026-03-05", -18.50, "Gasto Inicial Real", "Yape", "🔄 Otros", "expense");
+// Conexión a tu bóveda de Neon
+const { Pool } = pg;
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
 
 async function startServer() {
   const app = express();
@@ -51,36 +21,97 @@ async function startServer() {
 
   app.use(express.json());
 
-  // API Routes
-  app.get("/api/transactions", (req, res) => {
-    const rows = db.prepare("SELECT * FROM transactions ORDER BY date DESC").all();
-    res.json(rows);
+  // 1. Inicializar la Base de Datos (¡Sin borrar datos!)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS transactions (
+      id SERIAL PRIMARY KEY,
+      date TEXT NOT NULL,
+      amount REAL NOT NULL,
+      description TEXT NOT NULL,
+      account TEXT NOT NULL,
+      to_account TEXT,
+      category TEXT,
+      type TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
+  `);
+
+  // 2. Insertar configuración inicial solo si está vacío
+  const initialSettings = [
+    ['salary', '1500'],
+    ['debt', '298.56'],
+    ['initial_yape', '25.61'],
+    ['initial_plin', '137.56'],
+    ['initial_casa', '0.0'],
+    ['initial_mio', '0.0'],
+    ['contract_extended', 'false']
+  ];
+
+  for (const [key, value] of initialSettings) {
+    await pool.query(
+      "INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING",
+      [key, value]
+    );
+  }
+
+  // Rutas de tu API
+  app.get("/api/transactions", async (req, res) => {
+    try {
+      const result = await pool.query("SELECT * FROM transactions ORDER BY date DESC");
+      res.json(result.rows);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Error al obtener transacciones" });
+    }
   });
 
-  app.post("/api/transactions", (req, res) => {
+  app.post("/api/transactions", async (req, res) => {
     const { date, amount, description, account, to_account, category, type } = req.body;
-    const info = db.prepare(
-      "INSERT INTO transactions (date, amount, description, account, to_account, category, type) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    ).run(date, amount, description, account, to_account || null, category || null, type);
-    res.json({ id: info.lastInsertRowid });
+    try {
+      const result = await pool.query(
+        "INSERT INTO transactions (date, amount, description, account, to_account, category, type) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
+        [date, amount, description, account, to_account || null, category || null, type]
+      );
+      res.json({ id: result.rows[0].id });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Error al guardar transacción" });
+    }
   });
 
-  app.get("/api/settings", (req, res) => {
-    const rows = db.prepare("SELECT * FROM settings").all();
-    const settings = rows.reduce((acc: any, row: any) => {
-      acc[row.key] = row.value;
-      return acc;
-    }, {});
-    res.json(settings);
+  app.get("/api/settings", async (req, res) => {
+    try {
+      const result = await pool.query("SELECT * FROM settings");
+      const settings = result.rows.reduce((acc: any, row: any) => {
+        acc[row.key] = row.value;
+        return acc;
+      }, {});
+      res.json(settings);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Error al obtener configuración" });
+    }
   });
 
-  app.post("/api/settings", (req, res) => {
+  app.post("/api/settings", async (req, res) => {
     const { key, value } = req.body;
-    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(key, value);
-    res.json({ success: true });
+    try {
+      await pool.query(
+        "INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+        [key, value]
+      );
+      res.json({ success: true });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Error al actualizar configuración" });
+    }
   });
 
-  // Vite middleware for development
+  // Vite middleware
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -95,8 +126,8 @@ async function startServer() {
   }
 
   app.listen(Number(PORT), '0.0.0.0', () => {
-  console.log(`Servidor corriendo en el puerto ${PORT}`);
-});
+    console.log(`Servidor corriendo en el puerto ${PORT}`);
+  });
 }
 
 startServer();
