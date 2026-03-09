@@ -138,7 +138,7 @@ export default function App() {
       // Create two entries for a transfer
       // 1. Outgoing from source
       const outTrans: Transaction = {
-        date: format(today, 'yyyy-MM-dd'),
+        date: (formData as any).date || format(today, 'yyyy-MM-dd'),
         amount: -Math.abs(amount),
         description: `Transferencia a ${formData.to_account}`,
         account: formData.account,
@@ -148,7 +148,7 @@ export default function App() {
 
       // 2. Incoming to destination
       const inTrans: Transaction = {
-        date: format(today, 'yyyy-MM-dd'),
+        date: (formData as any).date || format(today, 'yyyy-MM-dd'),
         amount: Math.abs(amount),
         description: `Transferencia desde ${formData.account}`,
         account: formData.to_account,
@@ -171,7 +171,7 @@ export default function App() {
       const finalAmount = formData.type === 'expense' ? -Math.abs(amount) : Math.abs(amount);
       
       const newTrans: Transaction = {
-        date: format(today, 'yyyy-MM-dd'),
+        date: (formData as any).date || format(today, 'yyyy-MM-dd'),
         amount: finalAmount,
         description: formData.description,
         account: formData.account,
@@ -210,6 +210,7 @@ export default function App() {
         model: "gemini-2.5-flash",
         contents: `Extract financial transaction data from the following text: "${input}". 
         Return ONLY a JSON object with exactly these keys: 
+        - date (string in 'yyyy-MM-dd' format. STRICT RULE: If the user mentions a past day, yesterday, or any specific date, calculate and return that exact date. If NO date is mentioned, use today's date)
         - amount (positive number)
         - description (string)
         - account ("Yape", "Plin", "Ahorro Casa", or "Ahorro Mío")
@@ -222,15 +223,16 @@ export default function App() {
           responseSchema: {
             type: Type.OBJECT,
             properties: {
+              date: { type: Type.STRING },
               amount: { type: Type.NUMBER },
               description: { type: Type.STRING },
               account: { type: Type.STRING, enum: ["Yape", "Plin", "Ahorro Casa", "Ahorro Mío"] },
               category: { type: Type.STRING, enum: CATEGORIES },
               type: { type: Type.STRING, enum: ["expense", "income"] },
             },
-            required: ["amount", "description", "account", "category", "type"],
+            required: ["date", "amount", "description", "account", "category", "type"],
           },
-        },
+        }
       });
 
       const result = JSON.parse(response.text || '{}');
@@ -239,7 +241,7 @@ export default function App() {
         const finalAmount = result.type === 'expense' ? -Math.abs(result.amount) : Math.abs(result.amount);
         
         const newTrans: Transaction = {
-          date: format(today, 'yyyy-MM-dd'),
+          date: (result as any).date || format(today, 'yyyy-MM-dd'),
           amount: finalAmount,
           description: result.description,
           account: result.account as any,
