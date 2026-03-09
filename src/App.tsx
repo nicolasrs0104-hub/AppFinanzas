@@ -130,6 +130,17 @@ export default function App() {
     }
   };
 
+const handleDelete = async (id: number) => {
+    if (window.confirm("¿Estás seguro de borrar este registro?")) {
+      try {
+        await fetch(`/api/transactions/${id}`, { method: 'DELETE' });
+        fetchData(); 
+      } catch (error) {
+        console.error("Error al borrar:", error);
+      }
+    }
+  };
+
   const handleAddTransaction = async (e: React.FormEvent) => {
     e.preventDefault();
     const amount = parseFloat(formData.amount);
@@ -788,6 +799,7 @@ export default function App() {
                           </div>
                         </div>
                       </div>
+                      <div className="flex items-center gap-4">
                       <div className="text-right">
                         <p className={`text-sm font-bold ${
                           t.type === 'income' || t.type === 'payroll' ? 'text-emerald-400' :
@@ -798,6 +810,14 @@ export default function App() {
                         </p>
                         <p className="text-[9px] text-zinc-600 uppercase tracking-tighter mt-0.5">{t.category || t.type}</p>
                       </div>
+                      <button
+        onClick={() => handleDelete((t as any).id)}
+        className="text-zinc-600 hover:text-red-500 p-2 rounded-full hover:bg-red-500/10 transition-colors"
+        title="Borrar registro"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+      </button>
+    </div>
                     </motion.div>
                   ))}
                 </div>

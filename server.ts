@@ -83,6 +83,17 @@ async function startServer() {
     }
   });
 
+app.delete("/api/transactions/:id", async (req, res) => {
+    const { id } = req.params;
+    try {
+      await pool.query("DELETE FROM transactions WHERE id = $1", [id]);
+      res.json({ success: true });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Error al eliminar transacción" });
+    }
+  });
+
   app.get("/api/settings", async (req, res) => {
     try {
       const result = await pool.query("SELECT * FROM settings");
